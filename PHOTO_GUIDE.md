@@ -1,21 +1,16 @@
-# Photos to find
+# Store photos
 
-The campaign photo is **done**: the selected `download (6).jpeg` is saved as `static/images/hero.jpg`. **Eight product photos remain.** Category tiles reuse the first product photo in each category, so there is no need to find separate category images.
+The home campaign and all eight product photos are in `static/images`. The same product photos appear in category tiles, product cards, product details, and the bag.
 
-| Slot | Filename to use | Best composition |
-| --- | --- | --- |
-| Home campaign — done | `hero.jpg` | The supplied cream outfit and circular backdrop image. It is cropped in the layout without altering the original. |
-| Clothing 1 | `everyday-shirt.webp` | Full item or model wearing a shirt, vertical 4:5. |
-| Clothing 2 | `sunday-tee.webp` | Tee, vertical 4:5. |
-| Accessories 1 | `little-scarf.webp` | Scarf, vertical 4:5. |
-| Accessories 2 | `sunglasses.webp` | Sunglasses, vertical 4:5. |
-| Bags 1 | `city-tote.webp` | Tote bag, vertical 4:5. |
-| Bags 2 | `crossbody.webp` | Crossbody bag, vertical 4:5. |
-| Luggage 1 | `carry-on.webp` | Carry-on suitcase, vertical 4:5. |
-| Luggage 2 | `travel-duffel.webp` | Duffel, vertical 4:5. |
+| Product | Photo |
+| --- | --- |
+| The Everyday Shirt | `everyday-shirt.jpg` |
+| Easy Sunday Tee | `sunday-tee.jpg` |
+| The Little Scarf | `little-scarf.jpg` |
+| Everyday Sunglasses | `sunglasses.jpg` |
+| The City Tote | `city-tote.jpg` |
+| Star Mini Crossbody | `crossbody.jpg` |
+| Carry-On Case | `carry-on.jpg` |
+| Sunshine Travel Set | `travel-set.jpg` |
 
-For product photos, **1200 × 1500 px** is a good target. Keep the whole item visible and leave a little space around it so the shop grid can crop cleanly. Similar backgrounds will make the store feel coherent: white, cream, soft grey, pale pink, or light warm yellow. A small orange detail is welcome. Avoid text or watermarks on the photos.
-
-Prefer WebP or compressed JPEG. Around **150–350 KB per product image** keeps the site light. The campaign image can be up to about 500 KB. Use photos you own or have permission to use in the project/video. If you add more products later, use the same vertical shape for their photos.
-
-The frosted glass effect and the offer circle are created in CSS; no separate graphics are needed for those.
+The homepage campaign uses `hero.jpg`. New products can use JPG, PNG, or WebP photos placed in `static/images`; enter the filename in the admin page. Use photos you own or have permission to use for a public store.

@@ -8,7 +8,7 @@ A small, minimal shopping store for clothing, accessories, bags, and luggage. Th
 2. Run `python server.py`.
 3. Open `http://127.0.0.1:8000` in a browser.
 
-Python 3.10+ is required. No package installation is needed. The app creates `data/store.db` on first run and fills it with eight sample items. The home campaign photo is in place; product photos remain as placeholders.
+Python 3.10+ is required. No package installation is needed. The app creates `data/store.db` on first run and fills it with eight sample items and their photos.
 
 ## What works
 
@@ -36,7 +36,7 @@ Do not commit or share real passwords. The `data` folder is local store data and
 
 ## Add photos
 
-Read [PHOTO_GUIDE.md](PHOTO_GUIDE.md). The chosen campaign image is already saved as `static/images/hero.jpg`. Put product photos in `static/images`. In the admin page, edit each item and enter its image filename, for example `city-tote.webp`. The server checks that the file exists before saving.
+Read [PHOTO_GUIDE.md](PHOTO_GUIDE.md) for the current photos. To add or replace one, put it in `static/images`, then enter its filename in the admin page, for example `city-tote.jpg`. The server checks that the file exists before saving.
 
 ## Project scope
 

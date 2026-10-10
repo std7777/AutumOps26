@@ -30,14 +30,14 @@ CATEGORIES = {"clothing", "accessories", "bags", "luggage"}
 IMAGE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:jpe?g|png|webp)$", re.I)
 
 SEED_PRODUCTS = [
-    ("The Everyday Shirt", "clothing", 189900, 0, "A relaxed layer made for wherever the day leads.", 24, 1, 1),
-    ("Easy Sunday Tee", "clothing", 99900, 0, "An everyday staple with a soft, easy shape.", 30, 0, 1),
-    ("The Little Scarf", "accessories", 79900, 20, "A bright detail for your bag, neck, or hair.", 20, 1, 1),
-    ("Everyday Sunglasses", "accessories", 129900, 20, "A clean shape that goes with almost anything.", 18, 0, 1),
-    ("The City Tote", "bags", 249900, 20, "Room for the whole day without the extra fuss.", 16, 1, 1),
-    ("Weekend Crossbody", "bags", 199900, 20, "The right amount of space for a lighter day.", 17, 1, 1),
-    ("Carry-On Case", "luggage", 649900, 0, "Your essentials, neatly packed and ready to go.", 12, 0, 1),
-    ("Soft Travel Duffel", "luggage", 389900, 0, "A flexible companion for short escapes.", 14, 0, 1),
+    ("The Everyday Shirt", "clothing", 189900, 0, "/images/everyday-shirt.jpg", "A relaxed layer made for wherever the day leads.", 24, 1, 1),
+    ("Easy Sunday Tee", "clothing", 99900, 0, "/images/sunday-tee.jpg", "An everyday staple with a soft, easy shape.", 30, 0, 1),
+    ("The Little Scarf", "accessories", 79900, 20, "/images/little-scarf.jpg", "A bright detail for your bag, neck, or hair.", 20, 1, 1),
+    ("Everyday Sunglasses", "accessories", 129900, 20, "/images/sunglasses.jpg", "A clean shape that goes with almost anything.", 18, 0, 1),
+    ("The City Tote", "bags", 249900, 20, "/images/city-tote.jpg", "Room for the whole day without the extra fuss.", 16, 1, 1),
+    ("Star Mini Crossbody", "bags", 199900, 20, "/images/crossbody.jpg", "A playful little bag for your everyday essentials.", 17, 1, 1),
+    ("Carry-On Case", "luggage", 649900, 0, "/images/carry-on.jpg", "Your essentials, neatly packed and ready to go.", 12, 0, 1),
+    ("Sunshine Travel Set", "luggage", 389900, 0, "/images/travel-set.jpg", "A coordinated luggage set for your next escape.", 14, 0, 1),
 ]
 
 
@@ -106,7 +106,7 @@ def init_db() -> None:
         )
         if connection.execute("SELECT COUNT(*) FROM products").fetchone()[0] == 0:
             connection.executemany(
-                "INSERT INTO products (name,category,price,discount,description,stock,featured,active,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO products (name,category,price,discount,image,description,stock,featured,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 [(*row, now()) for row in SEED_PRODUCTS],
             )
         admin_email = os.getenv("MORROW_ADMIN_EMAIL", "").strip().lower()
