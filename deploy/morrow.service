@@ -1,0 +1,17 @@
+[Unit]
+Description=Morrow Edit application
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/storefront
+EnvironmentFile=/etc/morrow/morrow.env
+ExecStart=/home/ec2-user/storefront/.venv/bin/python /home/ec2-user/storefront/server.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

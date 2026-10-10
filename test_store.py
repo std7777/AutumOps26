@@ -48,6 +48,20 @@ class StoreFlowTest(unittest.TestCase):
         conn.close()
         return status, data, session
 
+    def test_existing_customer_cannot_become_admin_from_environment(self):
+        status, _, _ = self.request("POST", "/api/register", {
+            "name": "Regular Customer",
+            "email": "regular@example.test",
+            "password": "safe-password-123",
+        })
+        self.assertEqual(status, 200)
+        os.environ["MORROW_ADMIN_EMAIL"] = "regular@example.test"
+        try:
+            with self.assertRaisesRegex(ValueError, "already belongs to a customer"):
+                server.init_db()
+        finally:
+            os.environ["MORROW_ADMIN_EMAIL"] = "admin@example.test"
+
     def test_shopping_flow_and_admin_permissions(self):
         status, data, _ = self.request("GET", "/api/products")
         self.assertEqual(status, 200)

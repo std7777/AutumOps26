@@ -1,4 +1,4 @@
-"""Small local store server. Standard library only; run with `python server.py`."""
+"""Small shopping store server. SQLite locally or MySQL on AWS."""
 
 from __future__ import annotations
 
@@ -23,6 +23,17 @@ ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 DATA = ROOT / "data"
 DATABASE = DATA / "store.db"
+DB_BACKEND = os.getenv("MORROW_DB_BACKEND", "sqlite").strip().lower()
+if DB_BACKEND not in {"sqlite", "mysql"}:
+    raise ValueError("MORROW_DB_BACKEND must be sqlite or mysql")
+if DB_BACKEND == "mysql":
+    try:
+        import pymysql
+        from pymysql.constants import CLIENT
+    except ImportError as exc:
+        raise RuntimeError("MySQL mode needs PyMySQL. Install requirements-aws.txt on the app EC2.") from exc
+
+INTEGRITY_ERRORS = (sqlite3.IntegrityError,) + ((pymysql.IntegrityError,) if DB_BACKEND == "mysql" else ())
 HOST = os.getenv("MORROW_HOST", "127.0.0.1")
 PORT = int(os.getenv("MORROW_PORT", "8000"))
 SESSION_DAYS = 7
@@ -40,21 +51,120 @@ SEED_PRODUCTS = [
     ("Sunshine Travel Set", "luggage", 389900, 0, "/images/travel-set.jpg", "A coordinated luggage set for your next escape.", 14, 0, 1),
 ]
 
+MYSQL_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(80) NOT NULL, email VARCHAR(254) NOT NULL UNIQUE,
+  password_hash VARCHAR(128) NOT NULL, is_admin TINYINT(1) NOT NULL DEFAULT 0,
+  created_at VARCHAR(40) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash CHAR(64) NOT NULL PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  expires_at VARCHAR(40) NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS products (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL, category VARCHAR(32) NOT NULL,
+  price BIGINT NOT NULL, discount INT NOT NULL DEFAULT 0,
+  image VARCHAR(255) NOT NULL DEFAULT '', description VARCHAR(500) NOT NULL DEFAULT '',
+  stock INT NOT NULL DEFAULT 0, featured TINYINT(1) NOT NULL DEFAULT 0,
+  active TINYINT(1) NOT NULL DEFAULT 1, created_at VARCHAR(40) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS orders (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL, total BIGINT NOT NULL,
+  created_at VARCHAR(40) NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS order_items (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  order_id BIGINT UNSIGNED NOT NULL, product_id BIGINT UNSIGNED NOT NULL,
+  name VARCHAR(100) NOT NULL, quantity INT NOT NULL, unit_price BIGINT NOT NULL,
+  FOREIGN KEY (order_id) REFERENCES orders(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+"""
+
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+class MySQLConnection:
+    """Expose the small execute interface used by the SQLite code."""
+
+    def __init__(self, connection):
+        self.connection = connection
+
+    def execute(self, statement: str, parameters=()):
+        cursor = self.connection.cursor()
+        cursor.execute(statement.replace("?", "%s"), parameters)
+        return cursor
+
+    def executemany(self, statement: str, rows):
+        cursor = self.connection.cursor()
+        cursor.executemany(statement.replace("?", "%s"), rows)
+        return cursor
+
+    def executescript(self, script: str):
+        for statement in script.split(";"):
+            if statement.strip():
+                self.execute(statement)
+
+
 @contextmanager
 def db():
-    connection = sqlite3.connect(DATABASE, timeout=15)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    try:
-        with connection:
-            yield connection
-    finally:
-        connection.close()
+    if DB_BACKEND == "mysql":
+        names = ("MORROW_DB_HOST", "MORROW_DB_USER", "MORROW_DB_PASSWORD", "MORROW_DB_NAME")
+        missing = [name for name in names if not os.getenv(name)]
+        if missing:
+            raise RuntimeError(f"Missing MySQL settings: {', '.join(missing)}")
+        options = {}
+        if os.getenv("MORROW_DB_SSL_CA"):
+            options["ssl_ca"] = os.environ["MORROW_DB_SSL_CA"]
+            options["ssl_verify_cert"] = True
+            options["ssl_verify_identity"] = True
+        raw = pymysql.connect(
+            host=os.environ["MORROW_DB_HOST"],
+            port=int(os.getenv("MORROW_DB_PORT", "3306")),
+            user=os.environ["MORROW_DB_USER"],
+            password=os.environ["MORROW_DB_PASSWORD"],
+            database=os.environ["MORROW_DB_NAME"],
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+            client_flag=CLIENT.FOUND_ROWS,
+            autocommit=False,
+            connect_timeout=10,
+            **options,
+        )
+        try:
+            yield MySQLConnection(raw)
+            raw.commit()
+        except BaseException:
+            raw.rollback()
+            raise
+        finally:
+            raw.close()
+    else:
+        connection = sqlite3.connect(DATABASE, timeout=15)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
+
+
+def begin_write(connection) -> None:
+    # SQLite locks writers up front; MySQL locks the selected rows below.
+    if DB_BACKEND == "sqlite":
+        connection.execute("BEGIN IMMEDIATE")
+
+
+def for_update(statement: str) -> str:
+    return statement + (" FOR UPDATE" if DB_BACKEND == "mysql" else "")
 
 
 def password_hash(password: str, salt: str | None = None) -> str:
@@ -72,11 +182,12 @@ def password_matches(password: str, stored: str) -> bool:
 
 
 def init_db() -> None:
-    DATA.mkdir(exist_ok=True)
+    if DB_BACKEND == "sqlite":
+        DATA.mkdir(exist_ok=True)
     (STATIC / "images").mkdir(exist_ok=True)
     with db() as connection:
         connection.executescript(
-            """
+            MYSQL_SCHEMA if DB_BACKEND == "mysql" else """
             CREATE TABLE IF NOT EXISTS users (
               id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE,
               password_hash TEXT NOT NULL, is_admin INTEGER NOT NULL DEFAULT 0,
@@ -104,7 +215,7 @@ def init_db() -> None:
             );
             """
         )
-        if connection.execute("SELECT COUNT(*) FROM products").fetchone()[0] == 0:
+        if connection.execute("SELECT COUNT(*) AS item_count FROM products").fetchone()["item_count"] == 0:
             connection.executemany(
                 "INSERT INTO products (name,category,price,discount,image,description,stock,featured,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 [(*row, now()) for row in SEED_PRODUCTS],
@@ -114,9 +225,10 @@ def init_db() -> None:
         if admin_email and admin_password:
             if len(admin_password) < 12:
                 raise ValueError("MORROW_ADMIN_PASSWORD must be at least 12 characters")
-            existing = connection.execute("SELECT id FROM users WHERE email=?", (admin_email,)).fetchone()
+            existing = connection.execute("SELECT id,is_admin FROM users WHERE email=?", (admin_email,)).fetchone()
             if existing:
-                connection.execute("UPDATE users SET is_admin=1 WHERE id=?", (existing["id"],))
+                if not existing["is_admin"]:
+                    raise ValueError("Admin email already belongs to a customer. Choose a different admin email.")
             else:
                 connection.execute(
                     "INSERT INTO users (name,email,password_hash,is_admin,created_at) VALUES (?,?,?,?,?)",
@@ -124,7 +236,7 @@ def init_db() -> None:
                 )
 
 
-def product_dict(row: sqlite3.Row) -> dict:
+def product_dict(row) -> dict:
     item = dict(row)
     item["active"] = bool(item["active"])
     item["featured"] = bool(item["featured"])
@@ -270,7 +382,7 @@ class StoreHandler(BaseHTTPRequestHandler):
                 self.error(404, "Not found")
         except (ValueError, json.JSONDecodeError) as exc:
             self.error(400, str(exc))
-        except sqlite3.IntegrityError:
+        except INTEGRITY_ERRORS:
             self.error(409, "This item could not be saved because it is already in use.")
 
     def do_PUT(self) -> None:
@@ -300,12 +412,18 @@ class StoreHandler(BaseHTTPRequestHandler):
         if not self.require_user(admin=True):
             return
         with db() as connection:
+            begin_write(connection)
+            product_id = int(match.group(1))
+            product = connection.execute(for_update("SELECT id FROM products WHERE id=?"), (product_id,)).fetchone()
+            if not product:
+                self.error(404, "Item not found.")
+                return
             # Preserve an ordered product's record so existing orders stay readable.
-            in_order = connection.execute("SELECT 1 FROM order_items WHERE product_id=? LIMIT 1", (int(match.group(1)),)).fetchone()
+            in_order = connection.execute("SELECT 1 FROM order_items WHERE product_id=? LIMIT 1", (product_id,)).fetchone()
             if in_order:
-                connection.execute("UPDATE products SET active=0,stock=0 WHERE id=?", (int(match.group(1)),))
+                connection.execute("UPDATE products SET active=0,stock=0 WHERE id=?", (product_id,))
             else:
-                connection.execute("DELETE FROM products WHERE id=?", (int(match.group(1)),))
+                connection.execute("DELETE FROM products WHERE id=?", (product_id,))
         self.json_response(200, {"ok": True})
 
     def register(self, data: dict) -> None:
@@ -318,7 +436,7 @@ class StoreHandler(BaseHTTPRequestHandler):
             with db() as connection:
                 cursor = connection.execute("INSERT INTO users (name,email,password_hash,created_at) VALUES (?,?,?,?)", (name, email, password_hash(password), now()))
                 user_id = cursor.lastrowid
-        except sqlite3.IntegrityError:
+        except INTEGRITY_ERRORS:
             self.error(409, "An account with this email already exists.")
             return
         self.create_session({"id": user_id, "name": name, "email": email, "is_admin": 0})
@@ -367,10 +485,11 @@ class StoreHandler(BaseHTTPRequestHandler):
                 raise ValueError("Invalid item quantity.")
             normalized[product_id] = quantity
         with db() as connection:
-            connection.execute("BEGIN IMMEDIATE")
+            begin_write(connection)
             entries, total = [], 0
-            for product_id, quantity in normalized.items():
-                row = connection.execute("SELECT * FROM products WHERE id=? AND active=1", (product_id,)).fetchone()
+            for product_id in sorted(normalized):
+                quantity = normalized[product_id]
+                row = connection.execute(for_update("SELECT * FROM products WHERE id=? AND active=1"), (product_id,)).fetchone()
                 if not row or row["stock"] < quantity:
                     raise ValueError("An item in your bag is no longer available in that quantity.")
                 unit = (row["price"] * (100 - row["discount"]) + 50) // 100
@@ -387,15 +506,15 @@ class StoreHandler(BaseHTTPRequestHandler):
         if not user:
             return
         with db() as connection:
-            connection.execute("BEGIN IMMEDIATE")
+            begin_write(connection)
             order = connection.execute(
-                "SELECT id FROM orders WHERE id=? AND user_id=?", (order_id, user["id"])
+                for_update("SELECT id FROM orders WHERE id=? AND user_id=?"), (order_id, user["id"])
             ).fetchone()
             if not order:
                 self.error(404, "Order not found.")
                 return
             items = connection.execute(
-                "SELECT product_id,quantity FROM order_items WHERE order_id=?", (order_id,)
+                "SELECT product_id,quantity FROM order_items WHERE order_id=? ORDER BY product_id", (order_id,)
             ).fetchall()
             for item in items:
                 connection.execute(
