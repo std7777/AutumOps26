@@ -1,0 +1,3 @@
+Copy your selected hero.jpg and product photos into this folder.
+Then assign product photo filenames in the admin page.
+See ../../PHOTO_GUIDE.md for the exact nine-photo checklist.
